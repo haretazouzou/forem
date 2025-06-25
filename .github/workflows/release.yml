@@ -1,0 +1,111 @@
+---
+# yamllint disable rule:line-length
+
+name: Release
+
+on:  # yamllint disable-line rule:truthy
+  workflow_dispatch:
+
+concurrency:
+  group: alchemy-release
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    env:
+      STAGING_PROFILE_ID: ${{ secrets.OSS_NEXUS_STAGING_PROFILE_ID }}
+      NEXUS_USER: ${{ secrets.OSS_NEXUS_USERNAME }}
+      NEXUS_PASS: ${{ secrets.OSS_NEXUS_PASSWORD }}
+
+    steps:
+      - name: Fail if not on valid branch
+        if: github.ref != 'refs/heads/master'
+        run: |
+          echo "::error title=Invalid Branch::This workflow can only be run on specific branches"
+          exit 1
+
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: 21
+          distribution: temurin
+          check-latest: false
+
+      - name: Set up Maven
+        uses: stCarolas/setup-maven@v5
+        with:
+          maven-version: 3.9.5
+
+      - name: Configure git
+        run: |
+          git config --global user.email "infrastructure+deploy@renttherunway.com"
+          git config --global user.name "rtr-deploy"
+
+      - name: Setup GPG
+        env:
+          GPG_KEY: ${{ secrets.GPG_KEY }}
+        run: |
+          echo "$GPG_KEY" | base64 -d > private.key
+          gpg --import --batch --yes ./private.key
+          rm ./private.key
+          gpg -k
+
+      - name: Setup Nexus authentication and GPG passphrase
+        uses: whelk-io/maven-settings-xml-action@v22
+        with:
+          profiles: '[
+          {
+            "id": "gpg",
+            "activation": { "activeByDefault": "true" },
+            "properties": { "gpg.executable": "gpg", "gpg.passphrase": "${{ secrets.GPG_PASSPHRASE }}"}
+          }]'
+          servers: '[
+          {
+            "id": "ossrh",
+            "username": "${{ env.NEXUS_USER }}",
+            "password": "${{ env.NEXUS_PASS }}"
+          }]'
+
+      - name: Setup Github SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      # webfactory/ssh-agent stopped doing this with v0.8.0
+      # temporary -- we should preconfigure the self-hosted runners with this
+      - name: Configure known_hosts
+        run: |
+          echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' >> ~/.ssh/known_hosts
+          echo 'github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=' >> ~/.ssh/known_hosts
+          echo 'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' >> ~/.ssh/known_hosts
+
+      - name: Resolve dependencies
+        run: mvn -B dependency:go-offline dependency:resolve-plugins
+
+      - name: Prepare release
+        id: prepare-release
+        continue-on-error: true
+        run: mvn -B release:prepare
+
+      - name: Perform release
+        id: perform-release
+        continue-on-error: true
+        if: ${{ steps.prepare-release.outcome == 'success' }}
+        run: mvn -B release:perform -Darguments='-DskipTests -DskipITs'
+
+      - name: Rollback on release failure
+        if: ${{ steps.prepare-release.outcome != 'success' || steps.perform-release.outcome != 'success' }}
+        run: mvn release:rollback
+
+      # Separate from rollback step so it doesn't look like the rollback itself failed
+      - name: Fail build on release failure
+        if: ${{ steps.prepare-release.outcome != 'success' || steps.perform-release.outcome != 'success' }}
+        run: |
+          echo "Prepare release: ${{ steps.prepare-release.outcome }}"
+          echo "Perform release: ${{ steps.perform-release.outcome }}"
+          exit 1

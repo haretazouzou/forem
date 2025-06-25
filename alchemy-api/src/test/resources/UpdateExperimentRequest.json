@@ -1,0 +1,34 @@
+{
+    "seed": null,
+    "description": "my new experiment",
+    "filter": "identified",
+    "hashAttributes": [],
+    "active": true,
+    "treatments": [
+        {
+            "name": "control",
+            "description": "the base case"
+        },
+        {
+            "name": "x",
+            "description": "some other condition"
+        }
+    ],
+    "allocations": [
+        {
+            "treatment": "control",
+            "size": 5
+        },
+        {
+            "treatment": "x",
+            "size": 10
+        }
+    ],
+    "overrides": [
+        {
+            "name": "qa_override",
+            "treatment": "control",
+            "filter": "foo"
+        }
+    ]
+}

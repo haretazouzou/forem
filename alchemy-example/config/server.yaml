@@ -1,0 +1,23 @@
+---
+
+server:
+  applicationConnectors:
+    - type: http
+      port: 8080
+  adminConnectors:
+    - type: http
+      port: 8081
+
+identities:
+  io.rtr.alchemy.example.identities.User:
+    dto: io.rtr.alchemy.example.dto.UserDto
+    mapper: io.rtr.alchemy.example.mappers.UserMapper
+
+provider:
+  type: io.rtr.alchemy.example.config.MongoStoreProvider
+  hosts: ["localhost"]
+  db: experiments
+
+cacheStrategy:
+  type: io.rtr.alchemy.example.config.PeriodicStaleCheckingCacheStrategy
+  duration: 1m

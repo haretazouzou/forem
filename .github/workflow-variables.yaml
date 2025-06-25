@@ -1,0 +1,7 @@
+---
+
+workflows:
+  actions-audit:
+    omitJob: true
+  stale-branches:
+    omitJob: true

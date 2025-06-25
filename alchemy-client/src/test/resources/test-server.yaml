@@ -1,0 +1,9 @@
+---
+
+identities:
+  io.rtr.alchemy.client.identities.User:
+    dto: io.rtr.alchemy.client.dto.UserDto
+    mapper: io.rtr.alchemy.client.mappers.UserMapper
+
+provider:
+  type: io.rtr.alchemy.client.providers.MemoryStoreConfiguration
